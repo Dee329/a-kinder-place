@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Kinder Place — Anonymous Advice</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <h1>💜 A Kinder Place</h1>
+  <p class="tagline">Anonymous advice, kindly given. No names. No pictures. No judgment.</p>
+  <p class="alias">You are posting as: <strong>{{ alias }}</strong> (a made-up name — nobody knows who you are)</p>
+</header>
+
+<main>
+  {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+  {% if notice %}<p class="alert ok">{{ notice }}</p>{% endif %}
+
+  <section class="card crisis">
+    <h2>Need help right now?</h2>
+    <p>If you are in distress, please reach out right away. In the US, call or text <strong>988</strong>, or text <strong>HOME to 741741</strong> (Crisis Text Line). This site is peer advice only, not professional medical, legal, or crisis help.</p>
+  </section>
+
+  <section class="card">
+    <h2>Ask a question</h2>
+    <form action="{{ url_for('ask') }}" method="post">
+      <label for="topic">Topic</label>
+      <select id="topic" name="topic" required>
+        <option value="">Choose a topic…</option>
+        {% for t in topics %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+      <label for="body">Your question (text only — no pictures can be uploaded)</label>
+      <textarea id="body" name="body" rows="4" maxlength="2000" required placeholder="Ask kindly… others will answer kindly."></textarea>
+      <button type="submit">Post my question</button>
+    </form>
+    <p class="small">Medical and health questions are welcome. This is peer advice, not professional medical advice — please see a doctor or professional for medical decisions.</p>
+  </section>
+
+  <section class="card rules">
+    <h2>House rules</h2>
+    <ul>
+      <li>Be kind. Advice only — no judging, arguing, or put-downs.</li>
+      <li>Anonymous only: no real names, no pictures, no private messages.</li>
+      <li>No rude or abusive comments — they are blocked before they post.</li>
+      <li>No hardcore or explicit sexual questions or posts. Nasty or rude sexual posts are not allowed.</li>
+      <li>Medical-type questions are fine, with the peer-advice note above.</li>
+      <li>Use Report on any post or reply that breaks the rules — it is hidden right away for review.</li>
+    </ul>
+  </section>
+
+  <nav class="filters" aria-label="Filter by topic">
+    <a href="{{ url_for('index') }}" class="{{ 'active' if not selected_topic else '' }}">All topics</a>
+    {% for t in topics %}
+      <a href="{{ url_for('index', topic=t) }}" class="{{ 'active' if selected_topic == t else '' }}">{{ t }}</a>
+    {% endfor %}
+  </nav>
+
+  <h2>Questions from the community</h2>
+  {% if not posts %}<p>No questions here yet. Be the first to ask kindly.</p>{% endif %}
+  {% for post, replies in posts %}
+  <article class="card post">
+    <p class="meta"><span class="topic">{{ post.topic }}</span> · {{ post.alias }}{% if post.is_sample %} · <em>Sample post</em>{% endif %}</p>
+    <p class="body">{{ post.body }}</p>
+    <div class="actions">
+      <form action="{{ url_for('helpful', kind='post', item_id=post.id) }}" method="post"><button type="submit">💜 Helpful ({{ post.helpful_count }})</button></form>
+      <form action="{{ url_for('report', kind='post', item_id=post.id) }}" method="post"><button type="submit" class="report">Report</button></form>
+    </div>
+    <h3>Advice ({{ replies|length }})</h3>
+    {% for r in replies %}
+    <div class="reply">
+      <p class="meta">{{ r.alias }}</p>
+      <p class="body">{{ r.body }}</p>
+      <div class="actions">
+        <form action="{{ url_for('helpful', kind='reply', item_id=r.id) }}" method="post"><button type="submit">💜 Helpful ({{ r.helpful_count }})</button></form>
+        <form action="{{ url_for('report', kind='reply', item_id=r.id) }}" method="post"><button type="submit" class="report">Report</button></form>
+      </div>
+    </div>
+    {% endfor %}
+    <form action="{{ url_for('reply', post_id=post.id) }}" method="post" class="reply-form">
+      <label>Give advice on this question</label>
+      <textarea name="body" rows="3" maxlength="2000" required placeholder="Offer kind, helpful advice…"></textarea>
+      <button type="submit">Post advice</button>
+    </form>
+  </article>
+  {% endfor %}
+</main>
+
+<footer>
+  <p><strong>A Kinder Place</strong> — Dee's own community for kind, anonymous advice.</p>
+  <p>Peer advice only. Not professional medical, legal, or crisis help. In the US, call or text 988, or text HOME to 741741.</p>
+</footer>
+</body>
+</html>
