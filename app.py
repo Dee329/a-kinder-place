@@ -12,7 +12,8 @@ import re
 import sqlite3
 from datetime import datetime
 
-from flask import Flask, g, redirect, render_template, request, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+import json as _json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "a-kinder-place-dev-only-change-me")
@@ -22,6 +23,37 @@ TOPICS = ["Grief", "Parenting", "Relationships", "Money", "Work", "Health", "Eve
 
 ADJECTIVES = ["Warm", "Gentle", "Kind", "Quiet", "Bright", "Soft", "Calm", "Hopeful", "Patient", "Caring"]
 NOUNS = ["River", "Willow", "Meadow", "Sunrise", "Harbor", "Garden", "Lantern", "Feather", "Brook", "Compass"]
+
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+
+def send_reply_push(post_id):
+    """Ping browsers that asked to be notified about replies to post_id.
+    No names, emails or phone numbers are used - only a browser push
+    subscription the visitor opted into. Failures (expired subscriptions)
+    are removed silently. Push is skipped if VAPID keys are not set."""
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        return
+    try:
+        from pywebpush import WebPushException, webpush
+    except Exception:
+        return
+    db = get_db()
+    subs = db.execute("SELECT * FROM push_subscriptions WHERE post_id = ?", (post_id,)).fetchall()
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={"endpoint": sub["endpoint"], "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]}},
+                data="Someone replied to your question on A Kinder Place. Come back and read their kind advice.",
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": "mailto:dee@a-kinder-place.example"},
+            )
+        except Exception:
+            try:
+                db.execute("DELETE FROM push_subscriptions WHERE id = ?", (sub["id"],))
+                db.commit()
+            except Exception:
+                pass
 
 # Words that are rude / insulting. Matched as whole words (or phrases).
 RUDE_WORDS = [
@@ -74,6 +106,14 @@ def init_db():
             helpful_count INTEGER NOT NULL DEFAULT 0,
             hidden INTEGER NOT NULL DEFAULT 0,
             is_sample INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            endpoint TEXT NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS replies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,7 +184,7 @@ def index():
         result.append((post, replies))
     return render_template(
         "index.html", topics=TOPICS, selected_topic=topic,
-        posts=result, alias=get_alias(),
+        posts=result, alias=get_alias(), vapid_public_key=VAPID_PUBLIC_KEY,
         error=request.args.get("error", ""), notice=request.args.get("notice", ""),
     )
 
@@ -182,7 +222,30 @@ def reply(post_id):
         (post_id, body, get_alias(), datetime.utcnow().isoformat(timespec="seconds")),
     )
     db.commit()
+    send_reply_push(post_id)
     return redirect(url_for("index", notice="Thank you — your advice was posted."))
+
+@app.route("/push/subscribe", methods=["POST"])
+def push_subscribe():
+    init_db()
+    try:
+        data = request.get_json(force=True) or {}
+        post_id = int(data.get("post_id", 0))
+        sub = data.get("subscription") or {}
+        endpoint = sub.get("endpoint", "")
+        keys = sub.get("keys") or {}
+        if not post_id or not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+            return jsonify({"ok": False}), 400
+        db = get_db()
+        db.execute("DELETE FROM push_subscriptions WHERE post_id = ? AND endpoint = ?", (post_id, endpoint))
+        db.execute(
+            "INSERT INTO push_subscriptions (post_id, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)",
+            (post_id, endpoint, keys["p256dh"], keys["auth"], datetime.utcnow().isoformat(timespec="seconds")),
+        )
+        db.commit()
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False}), 400
 
 @app.route("/helpful/<kind>/<int:item_id>", methods=["POST"])
 def helpful(kind, item_id):
