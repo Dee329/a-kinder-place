@@ -34,6 +34,7 @@
       <textarea id="body" name="body" rows="4" maxlength="2000" required placeholder="Ask kindly… others will answer kindly."></textarea>
       <button type="submit">Post my question</button>
     </form>
+    <p class="small">After you post, tap “Notify me when I get a reply” under your question to get a ping on this device when someone answers. No email or name needed — you can turn it off in your browser settings.</p>
     <p class="small">Medical and health questions are welcome. This is peer advice, not professional medical advice — please see a doctor or professional for medical decisions.</p>
   </section>
 
@@ -75,6 +76,7 @@
     <div class="actions">
       <form action="{{ url_for('helpful', kind='post', item_id=post.id) }}" method="post"><button type="submit">💜 Helpful ({{ post.helpful_count }})</button></form>
       <form action="{{ url_for('report', kind='post', item_id=post.id) }}" method="post"><button type="submit" class="report">Report</button></form>
+      {% if post.alias == alias %}<button type="button" class="notify-btn" data-post-id="{{ post.id }}">🔔 Notify me when I get a reply</button>{% endif %}
     </div>
     <h3>Advice ({{ replies|length }})</h3>
     {% for r in replies %}
@@ -100,5 +102,31 @@
   <p><strong>A Kinder Place</strong> — Dee's own community for kind, anonymous advice.</p>
   <p>Peer advice only. Not professional medical, legal, or crisis help. In the US, call or text 988, or text HOME to 741741.</p>
 </footer>
+<script>
+(function () {
+  var vapidKey = {{ vapid_public_key|tojson }};
+  function urlB64ToUint8Array(s) {
+    var p = '='.repeat((4 - s.length % 4) % 4);
+    var b = (s + p).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = window.atob(b), out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  document.querySelectorAll('.notify-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) { alert('Notifications are not supported in this browser.'); return; }
+      if (!vapidKey) { alert('Notifications are not set up on this site yet.'); return; }
+      try {
+        var perm = await Notification.requestPermission();
+        if (perm !== 'granted') { alert('You chose not to allow notifications.'); return; }
+        var reg = await navigator.serviceWorker.register('/static/sw.js');
+        var sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(vapidKey) });
+        var res = await fetch('/push/subscribe', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ post_id: parseInt(btn.dataset.postId, 10), subscription: sub.toJSON() }) });
+        btn.textContent = res.ok ? '✓ You will be pinged when someone replies' : 'Could not turn on notifications — try again';
+      } catch (e) { alert('Could not turn on notifications — try again in Chrome.'); }
+    });
+  });
+})();
+</script>
 </body>
 </html>
